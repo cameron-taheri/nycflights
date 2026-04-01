@@ -1,0 +1,273 @@
+---
+title: "Homework 1"
+author: "Cameron Taheri"
+date: "2026-01-13"
+output: pdf_document
+---
+
+## 1. Analysis of Flights
+
+```{r setup, message=FALSE, echo=FALSE}
+# Load libraries and set my path
+library(tidyverse)
+library(nycflights13)
+my_path <- "~/r_code/adv_data/HW1"
+```
+
+
+### a.) Installation & Flights Data Set
+
+```{r message = FALSE, echo = FALSE}
+# create a data frame for the flights dataset
+df <- nycflights13::flights
+df |>
+  head(10)
+```
+
+
+### b.) Dimensions & Missing Tailnum
+
+The number of observations (rows) in this dataset is **`r scales::comma(nrow(df))`**, and the number of variables (columns) is **`r scales::comma(ncol(df))`**.
+
+```{r message = FALSE, echo = FALSE}
+# count number of NA's in the tailnum variable
+na_tailnum <- sum(is.na(df$tailnum))
+```
+There are **`r scales::comma(na_tailnum)`** flights that are missing tail numbers (tailnum observations with NA).
+
+
+### c.) Data Types
+```{r message = FALSE, echo = FALSE}
+# create vector of columns that we need to get data types for
+target_cols <- c("year", "tailnum", "origin", "dest", "distance", "time_hour")
+
+# apply typeof() to the target columns
+dtypes <- lapply(df[target_cols], typeof)
+
+# show results
+dtypes
+```
+
+
+### d.) Arrival Delay
+
+Arrival delay across all flights (in minutes):
+
+```{r message = FALSE, echo = FALSE}
+sum_arrdelays <- summary(df$arr_delay)
+sum_arrdelays
+```
+The earliest a flight arrived relative to its set arrival time is 86 minutes. The latest a flight arrived was by 1,272 minutes. On average, arrival delays were about 7 minutes.
+
+
+### e.) New Set from Flights
+
+```{r message = FALSE, echo = FALSE}
+# create subset of the flights dataset
+df_new <- select(df, time_hour, origin, dest, carrier, flight, arr_delay)
+df_new |>
+  head(10)
+```
+
+
+### f.) DCA Flights
+Subset from the original `flights` dataset containing only flights that have a destination of Washington National Airport (DCA).
+
+```{r message = FALSE, echo = FALSE}
+# filter the subset of data for just DCA-bound flights
+flightsToDC <- df_new |>
+  filter(dest == "DCA")
+flightsToDC |>
+  head(10)
+```
+
+The number of flights with a destination of DCA is **`r scales::comma(nrow(flightsToDC))`**. 
+
+
+## 2.) Weather Analysis
+```{r message = FALSE, echo = FALSE}
+# read in the weather station data table
+df_weather <- read_fwf(
+  file = file.path(my_path, "isd-history.txt"),
+  skip = 22, 
+  col_types = cols(.default = "c")
+  )
+
+colnames(df_weather) <- c("USAF", "WBAN", "STATION_NAME", "CTRY", "ST_CALL", "LAT", "LON", "ELEV_M", "BEGIN", "END")
+```
+
+```{r message = FALSE, echo = FALSE}
+# show the first few lines of the dataset to make sure it's been loaded correctly
+df_weather |>
+  head(10)
+```
+
+
+### a.) DCA Weather Station ID
+
+```{r message = FALSE, echo = FALSE}
+# filter for washington to get reduce number of results
+df_washington <- df_weather |>
+  filter(str_detect(STATION_NAME, "WASHINGTON"))
+
+df_washington |>
+  head(10)
+```
+The weather station ID (USAF) for DCA is **724050**.
+
+
+### b.) Weather in DC
+```{r message = FALSE, echo = FALSE}
+# grab DCA's weather data
+weatherInDC <- read.csv(file = file.path(my_path, "72405013743.csv"))
+#weatherInDC |>
+  #head(10)
+```
+
+
+### c.) Hourly Summary of Weather in DC
+Import the raw data.
+
+```{r message = FALSE, echo = FALSE}
+# create a subset from the full weather data for DCA of bad weather measurement variables
+weatherInDC_manip <- weatherInDC |>
+  select(
+    DATE,
+    HourlyPrecipitation,
+    HourlyVisibility,
+    HourlyWindSpeed
+  )
+
+weatherInDC_manip |>
+  head(10)
+```
+
+Clean and organize the data to create an hourly summary.
+
+```{r message = FALSE, echo = FALSE}
+weatherInDC_manip <- weatherInDC_manip |>
+  mutate(
+    
+    # precipitation marked with T means trace (set it equal to zero) & set empty cells to zero
+    HourlyPrecip = as.numeric(case_when(
+      HourlyPrecipitation == "T" ~ "0.000",
+      HourlyPrecipitation == "" ~ "0.000",
+      .default = HourlyPrecipitation)
+    ),
+    
+    # V in visibility means reading (observation) is moving around the measured value - just remove the V
+    HourlyVisib = as.numeric(str_remove(HourlyVisibility, "V")),
+    
+    # convert wind from int to dbl
+    HourlyWind = as.numeric(HourlyWindSpeed),
+    
+    # pull dates
+    year = as.numeric(substr(DATE, 1, 4)),
+    month = as.numeric(substr(DATE, 6, 7)),
+    day = as.numeric(substr(DATE, 9, 10)),
+    hours = as.numeric(substr(DATE, 12, 13)),
+    mins = as.numeric(substr(DATE, 15, 16)),
+    
+    # rounding: if within an hour it becomes the next
+    # e.g., if 01:32 then this counts as being IN hour 02:00
+    hours_rounded = ifelse(mins > 0, hours + 1, hours),
+    DATE_lt = as.POSIXlt(ISOdatetime(year, month, day, hours_rounded, 0, 0))
+  )
+
+weatherInDC_manip |>
+  head(10)
+```
+
+```{r message = FALSE, echo = FALSE}
+# display and check that it's hourly data now
+head(weatherInDC_manip$DATE_lt, 10)
+```
+```{r message = FALSE, echo = FALSE}
+# group each variable by hour using the time variable
+weather_summary <-  weatherInDC_manip |>
+  group_by(DATE_lt) |>
+  summarize(
+    precip = sum(HourlyPrecip, na.rm = TRUE),
+    visib = mean(HourlyVisib, na.rm = TRUE),
+    wind = mean(HourlyWind, na.rm = TRUE)
+  ) |>
+  ungroup()
+
+hourlyWeatherInDC <- weather_summary
+
+hourlyWeatherInDC |>
+  head(10)
+```
+
+
+### d.) Join Flights to DC With Hourly Weather Summary
+```{r message = FALSE, echo = FALSE}
+# ensure time index is consistent across both datasets
+hourlyWeatherInDC <- hourlyWeatherInDC |> 
+  mutate(DATE_lt = as.POSIXct(DATE_lt))
+
+# merge the two datasets so that each flight has an hour and weather vars. associated with it 
+df_flights_hourly <- flightsToDC |> 
+  left_join(hourlyWeatherInDC, by = join_by(time_hour == DATE_lt))
+
+df_flights_hourly <- df_flights_hourly |> drop_na(arr_delay, precip, visib, wind)
+
+df_flights_hourly |>
+  head(10)
+```
+```{r message = FALSE, echo = FALSE}
+# summary stats on the arrival delay variable from the flights dataset for DCA
+summary(df_flights_hourly$arr_delay)
+```
+
+
+### e.) Weather and Flight Delays at DCA in 2013
+```{r message = FALSE, echo = FALSE}
+ggplot(
+  data = df_flights_hourly,
+  mapping = aes(             # mapping always uses aesthetics function
+    x = wind, # aes() contains the elements of the mapping
+    y = arr_delay
+    )) +
+  geom_point(alpha = 0.5, color = "darkorange") +
+  labs(title = "DCA Arrival Delays vs. Wind Speed",
+       x = "Wind Speed",
+       y = "Arrival Delay (Minutes)") +
+  theme_minimal()
+```
+
+Flight delays are often associated with weather conditions, leading variables such as wind speed, precipitation, and visibility to factor into a pilot's ability to land a plane on time. Wind speed, however, doesn't seem to have a stark relationship with arrival delays at DCA. We can see that a large portion of the data clustered around lower wind speeds and moderate arrival delays, even early arrivals (marked by negative arrival delay values). There is a slight positive relationship: as wind speeds move from 10 to 25, arrival delays seem to increase. That said, there are many outliers in the scatter plot. 
+
+```{r message = FALSE, echo = FALSE}
+ggplot(
+  data = df_flights_hourly,
+  mapping = aes(             # mapping always uses aesthetics function
+    x = precip, # aes() contains the elements of the mapping
+    y = arr_delay
+    )) +
+  geom_point(alpha = 0.5, color = "forestgreen") +
+  labs(title = "DCA Arrival Delays vs. Precipitation",
+       x = "Precipitation",
+       y = "Arrival Delay (Minutes)") +
+  theme_minimal()
+```
+
+This plot is rather interesting, indicating that precipitation levels far from 0.0 in the DCA area were somewhat uncommon for the year 2013. Observations with higher precipitation levels seems to be associated with longer arrival delays, however, the subsample is small.
+
+```{r message = FALSE, echo = FALSE}
+ggplot(
+  data = df_flights_hourly,
+  mapping = aes(             # mapping always uses aesthetics function
+    x = visib, # aes() contains the elements of the mapping
+    y = arr_delay
+    )) +
+  geom_point(alpha = 0.5, color = "steelblue") + 
+  labs(title = "DCA Arrival Delays vs. Visibility",
+       x = "Visibility",
+       y = "Arrival Delay (Minutes)") +
+  theme_minimal()
+```
+
+When it comes to visibility, however, there seems to be more of a relationship here. As visibility improves (moving in the positive direction on the x-axis), we see a significant cluster of observations around zero arrival delay. Lower levels of visibility have many observations in the positive arrival delay interval, suggesting visibility, relative to wind speed and precipitation, has a stronger relationship with arrival delays. Despite this, there are many observations with arrival delays even with near perfect visibility, indicating that other factors are at play in delaying an plane's arrival in the DCA area.
+
+
