@@ -1,2 +1,2 @@
 # nycflights
-Exploratory analysis of the NYCFlights13 data set in R's tidyverse.
+Exploratory analysis of the `r nycflights13` package from CRAN.
