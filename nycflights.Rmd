@@ -1,5 +1,5 @@
 ---
-title: "Homework 1"
+title: "NYC Flights Exploratory Analysis"
 author: "Cameron Taheri"
 date: "2026-01-13"
 output: pdf_document
